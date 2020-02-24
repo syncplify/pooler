@@ -5,7 +5,9 @@ package pooler
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
+	"time"
 )
 
 /*
@@ -98,6 +100,18 @@ func (p *Pool) Shutdown() {
 	p.shutdownWG.Wait()
 }
 
+// ShutdownWithTimeout stops all goroutines running all tasks, and shuts down the entire pool
+// It returns true if it times out, and false if it shuts down regularly (before timeout occurs)
+func (p *Pool) ShutdownWithTimeout(timeout time.Duration) bool {
+	// Atomically set shuttingDown to true
+	atomic.StoreInt32(&p.shuttingDown, 1)
+	// Close shutdownChannel and jobChannel, and wait for all goroutines to terminate
+	close(p.shutdownChannel)
+	close(p.jobChannel)
+	p.jobChannel = nil
+	return waitTimeout(&p.shutdownWG, timeout)
+}
+
 // IsShuttingDown returns false during normal operation and true if the pool is shutting down;
 // all tasks should periodically check it inside of their "Run" func.
 func (p *Pool) IsShuttingDown() bool {
@@ -107,6 +121,22 @@ func (p *Pool) IsShuttingDown() bool {
 /*
 	PRIVATE FUNCS
 */
+
+// waitTimeout waits for the waitgroup for the specified max timeout
+// It returns true if it times out, and false if it shuts down regularly (before timeout occurs)
+func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
+	c := make(chan struct{})
+	go func() {
+		defer close(c)
+		wg.Wait()
+	}()
+	select {
+	case <-c:
+		return false // completed normally
+	case <-time.After(timeout):
+		return true // timed out
+	}
+}
 
 // oneUp is used internally to increase the atomic counter of "running" tasks by 1
 func (p *Pool) oneUp() {

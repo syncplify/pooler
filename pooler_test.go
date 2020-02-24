@@ -25,9 +25,9 @@ func init() {
 	pool, _ = New(routines, maxTasks)
 }
 
-// ****************************
-// * TASK TO BE EXECUTED      *
-// ****************************
+// ******************************
+// * TASK TO BE EXECUTED (FAST) *
+// ******************************
 
 type myTask struct {
 	TaskID string
@@ -43,6 +43,27 @@ func (t *myTask) CustomData() interface{} {
 
 func (t *myTask) Run(routine int) error {
 	atomic.AddInt32(&counter, 1)
+	return nil
+}
+
+// ******************************
+// * TASK TO BE EXECUTED (SLOW) *
+// ******************************
+
+type mySlowTask struct {
+	TaskID string
+}
+
+func (t *mySlowTask) ID() string {
+	return t.TaskID
+}
+
+func (t *mySlowTask) CustomData() interface{} {
+	return nil // in this basic example, our task has no custom data, so we simply return nil
+}
+
+func (t *mySlowTask) Run(routine int) error {
+	time.Sleep(time.Second * 30)
 	return nil
 }
 
@@ -64,10 +85,34 @@ func TestPooler_Easy(t *testing.T) {
 	// Allow some time for all jobs to finish
 	time.Sleep(3 * time.Second)
 	// Shutdown the pool
-	pool.Shutdown()
+	timedout := pool.ShutdownWithTimeout(time.Second * 5)
+	if timedout {
+		t.Fatal("3. Timeout reached during shutdown")
+	}
 	//Check results
 	if int(counter) != maxTasks {
 		t.Fatalf("3. Counter (%d) and maxTasks (%d) are not the same", counter, maxTasks)
+	}
+}
+
+func TestPooler_Slow(t *testing.T) {
+	if pool == nil {
+		t.Fatal("1. Could not create pool: expected pointer, got nil")
+	}
+	// Enqueue jobs
+	for i := 0; i < maxTasks; i++ {
+		job := &mySlowTask{TaskID: ksuid.New().String()}
+		err := pool.Enqueue(job)
+		if err != nil {
+			t.Fatalf("2. Could not enqueue job: %s", err)
+		}
+	}
+	// Allow some time for all jobs to finish
+	time.Sleep(3 * time.Second)
+	// Shutdown the pool (on slow tasks we DO expect this to timeout)
+	timedout := pool.ShutdownWithTimeout(time.Second * 5)
+	if !timedout {
+		t.Fatal("3. Failed to trigger timeout reached during slow shutdown (it should have!)")
 	}
 }
 
