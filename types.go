@@ -2,22 +2,22 @@ package pooler
 
 import "sync"
 
-// CallbackFuncWrk is the prototype of a function that will be called by the pool to notify when workers are created or shutdown
+// CallbackFuncWrk is the prototype of a function that will be called by the pool to notify when workers are created or shutdown.
 type CallbackFuncWrk func(routine int)
 
-// CallbackFuncTask is the prototype of a function that will be called by the pool to notify when workers start/stop/enqueue tasks
+// CallbackFuncTask is the prototype of a function that will be called by the pool to notify when workers start/stop tasks.
 type CallbackFuncTask func(routine int, task *Task)
 
-// CallbackFuncTaskErr is the prototype of a function that will be called by the pool to notify of errors pertaining tasks (typically runtime errors)
+// CallbackFuncTaskErr is the prototype of a function that will be called by the pool to notify of errors pertaining tasks (typically runtime errors).
 type CallbackFuncTaskErr func(routine int, task *Task, err error)
 
-// CallbackFuncQueue is the prototype of a function that will be called by the pool to notify of successful events pertaining the queue (like a task successfully enqueued)
+// CallbackFuncQueue is the prototype of a function that will be called by the pool to notify of successful events pertaining the queue (like a task successfully enqueued, for example).
 type CallbackFuncQueue func(task *Task)
 
-// CallbackFuncQueueErr is the prototype of a function that will be called by the pool to notify of errors pertaining the queue (queuing errors)
+// CallbackFuncQueueErr is the prototype of a function that will be called by the pool to notify of errors pertaining the queue (queuing errors).
 type CallbackFuncQueueErr func(task *Task, err error)
 
-// Config is the global pool configuration struct
+// Config is the global pool configuration struct.
 type Config struct {
 	// Routines is the desired number of "worker" goroutines
 	Routines int
@@ -41,19 +41,19 @@ type Config struct {
 	TaskCrashedCB CallbackFuncTaskErr
 }
 
-// Runnable is the interface that all "runnable" tasks must implement
+// Runnable is the interface that all "runnable" tasks must implement.
 type Runnable interface {
 	ID() string
 	Run(routine int) error
 	CustomData() interface{}
 }
 
-// Task encapsulates a base struct for objects that implement the Runnable interface
+// Task encapsulates a base struct for objects that implement the Runnable interface.
 type Task struct {
 	Runnable
 }
 
-// Pool is a container for a pool of goroutines that will run the queued tasks
+// Pool is a container for a pool of goroutines that will run the queued tasks.
 type Pool struct {
 	cfg             *Config        // A user-provided configuration for this pool
 	shutdownChannel chan struct{}  // Channel used to shutdown the pool

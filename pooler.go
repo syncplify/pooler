@@ -14,16 +14,16 @@ import (
 	PUBLIC FUNCS
 */
 
-// New creates a new Pool object without any Callback functions
-// routines: maximum number of "worker" goroutines that are allowed to run concurrently
-// maxTasks: maximum number of tasks that can be waiting in line to be executed by the next available goroutine
+// New creates a new pooler.Pool object without any Callback functions.
+// `routines` is the maximum number of "worker" goroutines that are allowed to run concurrently.
+// `maxTasks` is the maximum number of tasks that can be waiting in line to be executed by the next available goroutine.
 func New(routines int, maxTasks int) (*Pool, error) {
 	cfg := NewConfig(routines, maxTasks)
 	return NewWithConfig(cfg)
 }
 
-// NewWithConfig creates a new Pool object with a user-provided configuration
-// config: a pointer to a Config object (see types.go)
+// NewWithConfig creates a new pooler.Pool object with a user-provided configuration.
+// `config` is a pointer to a pooler.Config object (see types.go).
 func NewWithConfig(config *Config) (*Pool, error) {
 	// Check that config is not nil first
 	if config == nil {
@@ -44,8 +44,8 @@ func NewWithConfig(config *Config) (*Pool, error) {
 	return pool, nil
 }
 
-// Enqueue adds a task to the queue of tasks waiting to be executed
-// task: any object that implements the Runnable interface (see types.go)
+// Enqueue adds a task to the queue of tasks waiting to be executed.
+// `task` can be any object that implements the pooler.Runnable interface (see types.go).
 func (p *Pool) Enqueue(task Runnable) error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -78,18 +78,19 @@ func (p *Pool) Enqueue(task Runnable) error {
 	return nil
 }
 
-// QueueLen returns the number of tasks currently queued
+// QueueLen returns the number of tasks currently queued, and waiting to be executed.
 func (p *Pool) QueueLen() int {
 	return len(p.jobChannel)
 }
 
-// ActiveWorkers returns the number of goroutines that are actually busy doing something
+// ActiveWorkers returns the number of goroutines that are actually busy doing something.
 func (p *Pool) ActiveWorkers() int {
 	n := atomic.LoadInt32(&p.currentLoad)
 	return int(n)
 }
 
-// Shutdown stops all goroutines running all tasks, and shuts down the entire pool
+// Shutdown stops all goroutines running all tasks, and shuts down the entire pool. Please note that
+// this method could actually wait forever untill all pending tasks are done.
 func (p *Pool) Shutdown() {
 	// Atomically set shuttingDown to true
 	atomic.StoreInt32(&p.shuttingDown, 1)
@@ -100,8 +101,12 @@ func (p *Pool) Shutdown() {
 	p.shutdownWG.Wait()
 }
 
-// ShutdownWithTimeout stops all goroutines running all tasks, and shuts down the entire pool
-// It returns true if it times out, and false if it shuts down regularly (before timeout occurs)
+// ShutdownWithTimeout stops all goroutines running all tasks, and shuts down the entire pool. It doesn't
+// wait forever, and it always returns on or before `timeout`.
+// It returns true if it times out, and false if it shuts down regularly (before timeout occurs).
+// Please note that if this function returns true (a timeout has occurred) you may still have "orphan"
+// goroutines running; it is, therefore, recommended that this is the among the last methods you call
+// just before your program terminates.
 func (p *Pool) ShutdownWithTimeout(timeout time.Duration) bool {
 	// Atomically set shuttingDown to true
 	atomic.StoreInt32(&p.shuttingDown, 1)
@@ -122,8 +127,8 @@ func (p *Pool) IsShuttingDown() bool {
 	PRIVATE FUNCS
 */
 
-// waitTimeout waits for the waitgroup for the specified max timeout
-// It returns true if it times out, and false if it shuts down regularly (before timeout occurs)
+// waitTimeout waits for the `wg` WaitGroup to return, for the specified maximum `timeout`.
+// It returns true if it times out, and false if the WaitGroup returns regularly (i.e. before timeout occurs).
 func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 	c := make(chan struct{})
 	go func() {
@@ -138,17 +143,17 @@ func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 	}
 }
 
-// oneUp is used internally to increase the atomic counter of "running" tasks by 1
+// oneUp is used internally to increase the atomic counter of "running" tasks by 1.
 func (p *Pool) oneUp() {
 	atomic.AddInt32(&p.currentLoad, 1)
 }
 
-// oneDown is used internally to decrease the atomic counter of "running" tasks by 1
+// oneDown is used internally to decrease the atomic counter of "running" tasks by 1.
 func (p *Pool) oneDown() {
 	atomic.AddInt32(&p.currentLoad, -1)
 }
 
-// worker is the actual goroutine (of which routineNum will be spawned upon pool creation)
+// worker is the actual "worker" goroutine (of which routineNum will be spawned upon pool creation).
 func (p *Pool) worker(goroutine int) {
 	// Add self to the shutdown WaitGroup
 	p.shutdownWG.Add(1)
@@ -177,7 +182,7 @@ func (p *Pool) worker(goroutine int) {
 	}
 }
 
-// safeDo calls the task's "Run" func in a controlled/recoverable way
+// safeDo calls the task's "Run" func in a controlled/recoverable way.
 func (p *Pool) safeDo(routine int, task *Task) {
 	// If callback func is not nil, call it and notify task has been started
 	if p.cfg.TaskStartedCB != nil {
