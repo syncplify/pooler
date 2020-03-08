@@ -12,10 +12,10 @@ import (
 var pool *Pool
 
 var (
-	counter int32 // we'll use this to simulate some work
+	counter int64 // we'll use this to simulate some work
 	// How many goroutines/maxTasks
-	routines = 10
-	maxTasks = 1000
+	routines = int32(10)
+	maxTasks = int64(1000)
 )
 
 func init() {
@@ -42,7 +42,7 @@ func (t *myTask) CustomData() interface{} {
 }
 
 func (t *myTask) Run(routine int) error {
-	atomic.AddInt32(&counter, 1)
+	atomic.AddInt64(&counter, 1)
 	return nil
 }
 
@@ -75,7 +75,7 @@ func TestPooler_Easy(t *testing.T) {
 		t.Fatal("1. Could not create pool: expected pointer, got nil")
 	}
 	// Enqueue jobs
-	for i := 0; i < maxTasks; i++ {
+	for i := 0; i < int(maxTasks); i++ {
 		job := &myTask{TaskID: ksuid.New().String()}
 		err := pool.Enqueue(job)
 		if err != nil {
@@ -90,7 +90,7 @@ func TestPooler_Easy(t *testing.T) {
 		t.Fatal("3. Timeout reached during shutdown")
 	}
 	//Check results
-	if int(counter) != maxTasks {
+	if counter != maxTasks {
 		t.Fatalf("3. Counter (%d) and maxTasks (%d) are not the same", counter, maxTasks)
 	}
 }
@@ -100,7 +100,7 @@ func TestPooler_Slow(t *testing.T) {
 		t.Fatal("1. Could not create pool: expected pointer, got nil")
 	}
 	// Enqueue jobs
-	for i := 0; i < maxTasks; i++ {
+	for i := 0; i < int(maxTasks); i++ {
 		job := &mySlowTask{TaskID: ksuid.New().String()}
 		err := pool.Enqueue(job)
 		if err != nil {
@@ -122,7 +122,7 @@ func BenchmarkPooler_Easy(b *testing.B) {
 		pool.Enqueue(job)
 	}
 	for {
-		if int(atomic.LoadInt32(&counter)) >= b.N {
+		if int(atomic.LoadInt64(&counter)) >= b.N {
 			break
 		}
 	}

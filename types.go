@@ -20,9 +20,9 @@ type CallbackFuncQueueErr func(task *Task, err error)
 // Config is the global pool configuration struct.
 type Config struct {
 	// Routines is the desired number of "worker" goroutines
-	Routines int
+	Routines int32
 	// MaxTasks is the maximum number of tasks that can be in this pool's queue at any given time
-	MaxTasks int
+	MaxTasks int64
 	// WorkerCreatedCB is an optional callback func that will be called every time a "worker" goroutine is created
 	WorkerCreatedCB CallbackFuncWrk
 	// WorkerShutdownCB is an optional callback func that will be called every time a "worker" goroutine is shutdown
@@ -55,11 +55,14 @@ type Task struct {
 
 // Pool is a container for a pool of goroutines that will run the queued tasks.
 type Pool struct {
-	cfg             *Config        // A user-provided configuration for this pool
-	shutdownChannel chan struct{}  // Channel used to shutdown the pool
-	shutdownWG      sync.WaitGroup // WaitGroup used to wait for "worker" goroutines to shut down
-	shuttingDown    int32          // starts as 0, will be atomically set to 1 when the pool is shutting down (so that tasks can check it)
-	jobChannel      chan *Task     // Buffered channel used to dispatch tasks to the goroutines that run them
-	capacity        int            // Maximum capacity of the pool
-	currentLoad     int32          // Current number of goroutines actually doing something
+	cfg               *Config        // A user-provided configuration for this pool
+	shutdownChannel   chan struct{}  // Channel used to shutdown the pool
+	shutdownWG        sync.WaitGroup // WaitGroup used to wait for "worker" goroutines to shut down
+	shuttingDown      int32          // starts as 0, will be atomically set to 1 when the pool is shutting down (so that tasks can check it)
+	jobChannel        chan *Task     // Buffered channel used to dispatch tasks to the goroutines that run them
+	shrinkChannel     chan bool      // Buffered channel that will be used to shrink the pool during a call to the .Resize method
+	capacity          int64          // Maximum capacity of the pool
+	currentLoad       int32          // Current number of goroutines actually doing something
+	currentGoroutines int32          // Current number of running (including idle) goroutines
+	nextGoroutine     int64          // Incremental (atomic) number to be assigned to the next goroutine
 }

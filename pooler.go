@@ -17,7 +17,7 @@ import (
 // New creates a new pooler.Pool object without any Callback functions.
 // `routines` is the maximum number of "worker" goroutines that are allowed to run concurrently.
 // `maxTasks` is the maximum number of tasks that can be waiting in line to be executed by the next available goroutine.
-func New(routines int, maxTasks int) (*Pool, error) {
+func New(routines int32, maxTasks int64) (*Pool, error) {
 	cfg := NewConfig(routines, maxTasks)
 	return NewWithConfig(cfg)
 }
@@ -34,14 +34,54 @@ func NewWithConfig(config *Config) (*Pool, error) {
 		cfg:             config,
 		shutdownChannel: make(chan struct{}),
 		jobChannel:      make(chan *Task, config.MaxTasks),
+		shrinkChannel:   make(chan bool, config.MaxTasks),
 		capacity:        config.MaxTasks,
 	}
+	// Upon pool creation, we can safely set the nextGoroutine number to the "routines" parameter of this func
+	atomic.StoreInt64(&pool.nextGoroutine, int64(config.Routines))
 	// Start routineNum goroutines to perform the tasks
-	for goroutine := 0; goroutine < config.Routines; goroutine++ {
+	for goroutine := 0; goroutine < int(config.Routines); goroutine++ {
 		go pool.worker(goroutine)
 	}
 	// Return the newly created pool
 	return pool, nil
+}
+
+// Resize attempts to resize the pool, adding or terminating goroutines as needed. It returns an error
+// if resizing conditions aren't met.
+func (p *Pool) Resize(newGoroutines int32) error {
+	cgr := p.ConfiguredRoutines()
+	if int(newGoroutines) == cgr {
+		// Trying to resize to the SAME number of already configured goroutines,
+		// let's not be too dramatic, just do nothing and don't return any error.
+		return nil
+	}
+	// Check boundaries
+	if newGoroutines < 1 || int(newGoroutines) > p.MaxTasks() {
+		return errors.New("goroutine number out of boundaries")
+	}
+	// Check if a previous resize operation is still ongoing
+	aw := p.ActiveWorkers()
+	if aw != cgr {
+		return errors.New("cannot resize while a previous resize operation is still ongoing")
+	}
+	// If we get here we can resize the pool
+	// Do we need to shrink the pool?
+	if int(newGoroutines) < cgr {
+		diff := cgr - int(newGoroutines)
+		for i := 0; i < diff; i++ {
+			p.shrinkChannel <- true
+		}
+	} else {
+		diff := int(newGoroutines) - cgr
+		for goroutine := 0; goroutine < diff; goroutine++ {
+			go p.worker(int(atomic.LoadInt64(&p.nextGoroutine)))
+			atomic.AddInt64(&p.nextGoroutine, 1)
+		}
+	}
+	// Last, set new number of configured routines atomically, and return nil (no error)
+	atomic.StoreInt32(&p.cfg.Routines, newGoroutines)
+	return nil
 }
 
 // Enqueue adds a task to the queue of tasks waiting to be executed.
@@ -62,7 +102,7 @@ func (p *Pool) Enqueue(task Runnable) error {
 			}
 		}
 	}()
-	if len(p.jobChannel) >= p.capacity {
+	if len(p.jobChannel) >= int(p.capacity) {
 		return errors.New("cannot add task at this time: maximum capacity of the pool has been reached")
 	}
 	if task.ID() == "" {
@@ -78,13 +118,31 @@ func (p *Pool) Enqueue(task Runnable) error {
 	return nil
 }
 
+// ConfiguredRoutines returns the number of configured goroutines in a thread-safe way
+func (p *Pool) ConfiguredRoutines() int {
+	n := atomic.LoadInt32(&p.cfg.Routines)
+	return int(n)
+}
+
+// MaxTasks returns the maximum number of queueable tasks in a thread-safe way
+func (p *Pool) MaxTasks() int {
+	n := atomic.LoadInt64(&p.cfg.MaxTasks)
+	return int(n)
+}
+
 // QueueLen returns the number of tasks currently queued, and waiting to be executed.
 func (p *Pool) QueueLen() int {
 	return len(p.jobChannel)
 }
 
-// ActiveWorkers returns the number of goroutines that are actually busy doing something.
+// ActiveWorkers returns the number of running goroutines, including the ones that are idle.
 func (p *Pool) ActiveWorkers() int {
+	n := atomic.LoadInt32(&p.currentGoroutines)
+	return int(n)
+}
+
+// ActiveTasks retuns the number of tasks that are REALLY being executed at this time.
+func (p *Pool) ActiveTasks() int {
 	n := atomic.LoadInt32(&p.currentLoad)
 	return int(n)
 }
@@ -143,21 +201,36 @@ func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 	}
 }
 
-// oneUp is used internally to increase the atomic counter of "running" tasks by 1.
-func (p *Pool) oneUp() {
+// goroutineUp is used internally to increase the atomic counter of current goroutines by 1.
+func (p *Pool) goroutineUp() {
+	atomic.AddInt32(&p.currentGoroutines, 1)
+}
+
+// goroutineDown is used internally to decrease the atomic counter of current goroutines by 1.
+func (p *Pool) goroutineDown() {
+	atomic.AddInt32(&p.currentGoroutines, -1)
+}
+
+// taskUp is used internally to increase the atomic counter of running tasks by 1.
+func (p *Pool) taskUp() {
 	atomic.AddInt32(&p.currentLoad, 1)
 }
 
-// oneDown is used internally to decrease the atomic counter of "running" tasks by 1.
-func (p *Pool) oneDown() {
+// taskDown is used internally to decrease the atomic counter of running tasks by 1.
+func (p *Pool) taskDown() {
 	atomic.AddInt32(&p.currentLoad, -1)
 }
 
 // worker is the actual "worker" goroutine (of which routineNum will be spawned upon pool creation).
 func (p *Pool) worker(goroutine int) {
-	// Add self to the shutdown WaitGroup
+	// Add self to the shutdown WaitGroup and up 1 routine
 	p.shutdownWG.Add(1)
-	defer p.shutdownWG.Done()
+	p.goroutineUp()
+	// On exit, down 1 routine and leave the WaitGroup
+	defer func() {
+		p.goroutineDown()
+		p.shutdownWG.Done()
+	}()
 	// If callback func is not nil, call it and notify goroutine has been created
 	if p.cfg.WorkerCreatedCB != nil {
 		p.cfg.WorkerCreatedCB(goroutine)
@@ -165,8 +238,16 @@ func (p *Pool) worker(goroutine int) {
 	// Wait for something to do (or for shutdown signal)
 	for {
 		select {
-		// Do we need to shutdown the "worker" goroutine?
+		// Do we need to shutdown all "worker" goroutines?
 		case <-p.shutdownChannel:
+			// If callback func is not nil, call it and notify goroutine is going down
+			if p.cfg.WorkerShutdownCB != nil {
+				p.cfg.WorkerShutdownCB(goroutine)
+			}
+			// The following return will cause the above "defer" to trigger, ensuring consistent decrement of the shutdown WaitGroup
+			return
+			// Or maybe we need to shutdown this "worker" goroutine because of an ongoing .Resize?
+		case <-p.shrinkChannel:
 			// If callback func is not nil, call it and notify goroutine is going down
 			if p.cfg.WorkerShutdownCB != nil {
 				p.cfg.WorkerShutdownCB(goroutine)
@@ -188,8 +269,8 @@ func (p *Pool) safeDo(routine int, task *Task) {
 	if p.cfg.TaskStartedCB != nil {
 		p.cfg.TaskStartedCB(routine, task)
 	}
-	p.oneUp()
-	defer p.oneDown()
+	p.taskUp()
+	defer p.taskDown()
 	defer func() {
 		if r := recover(); r != nil {
 			// If callback func is not nil, call it and notify panic has been caught
