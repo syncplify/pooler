@@ -34,7 +34,7 @@ func NewWithConfig(config *Config) (*Pool, error) {
 		cfg:             config,
 		shutdownChannel: make(chan struct{}),
 		jobChannel:      make(chan *Task, config.MaxTasks),
-		shrinkChannel:   make(chan bool, config.MaxTasks),
+		shrinkChannel:   make(chan struct{}, config.MaxTasks),
 		capacity:        config.MaxTasks,
 	}
 	// Upon pool creation, we can safely set the nextGoroutine number to the "routines" parameter of this func
@@ -70,7 +70,7 @@ func (p *Pool) Resize(newGoroutines int32) error {
 	if int(newGoroutines) < cgr {
 		diff := cgr - int(newGoroutines)
 		for i := 0; i < diff; i++ {
-			p.shrinkChannel <- true
+			p.shrinkChannel <- struct{}{}
 		}
 	} else {
 		diff := int(newGoroutines) - cgr

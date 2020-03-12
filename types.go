@@ -60,7 +60,7 @@ type Pool struct {
 	shutdownWG        sync.WaitGroup // WaitGroup used to wait for "worker" goroutines to shut down
 	shuttingDown      int32          // starts as 0, will be atomically set to 1 when the pool is shutting down (so that tasks can check it)
 	jobChannel        chan *Task     // Buffered channel used to dispatch tasks to the goroutines that run them
-	shrinkChannel     chan bool      // Buffered channel that will be used to shrink the pool during a call to the .Resize method
+	shrinkChannel     chan struct{}  // Buffered channel that will be used to shrink the pool during a call to the .Resize method
 	capacity          int64          // Maximum capacity of the pool
 	currentLoad       int32          // Current number of goroutines actually doing something
 	currentGoroutines int32          // Current number of running (including idle) goroutines
