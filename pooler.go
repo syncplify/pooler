@@ -5,7 +5,6 @@ package pooler
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -268,7 +267,6 @@ func (p *Pool) worker(goroutine int) {
 				p.safeDo(goroutine, task)
 				st := atomic.LoadInt64(&p.jobsStarted)
 				rt := atomic.LoadInt32(&p.currentLoad)
-				fmt.Printf("st: %d, rt: %d\n", st, rt)
 				if st > 1 && rt == 0 {
 					close(p.doneChannel)
 				}
