@@ -63,7 +63,7 @@ func (t *mySlowTask) CustomData() interface{} {
 }
 
 func (t *mySlowTask) Run(routine int) error {
-	time.Sleep(time.Second * 30)
+	time.Sleep(time.Second * 5)
 	return nil
 }
 
@@ -114,6 +114,22 @@ func TestPooler_Slow(t *testing.T) {
 	if !timedout {
 		t.Fatal("3. Failed to trigger timeout reached during slow shutdown (it should have!)")
 	}
+}
+
+func TestPooler_SlowWithDone(t *testing.T) {
+	if pool == nil {
+		t.Fatal("1. Could not create pool: expected pointer, got nil")
+	}
+	// Enqueue jobs
+	for i := 0; i < int(20); i++ {
+		job := &mySlowTask{TaskID: ksuid.New().String()}
+		err := pool.Enqueue(job)
+		if err != nil {
+			t.Fatalf("2. Could not enqueue job: %s", err)
+		}
+	}
+	<-pool.Done()
+	pool.Shutdown()
 }
 
 func BenchmarkPooler_Easy(b *testing.B) {

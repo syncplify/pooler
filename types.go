@@ -65,4 +65,7 @@ type Pool struct {
 	currentLoad       int32          // Current number of goroutines actually doing something
 	currentGoroutines int32          // Current number of running (including idle) goroutines
 	nextGoroutine     int64          // Incremental (atomic) number to be assigned to the next goroutine
+	//* new
+	jobsStarted int64
+	doneChannel chan struct{} // Channel used to signal that the pool is done
 }

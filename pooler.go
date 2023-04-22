@@ -5,6 +5,7 @@ package pooler
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,7 @@ func NewWithConfig(config *Config) (*Pool, error) {
 		jobChannel:      make(chan *Task, config.MaxTasks),
 		shrinkChannel:   make(chan struct{}, config.MaxTasks),
 		capacity:        config.MaxTasks,
+		doneChannel:     make(chan struct{}),
 	}
 	// Upon pool creation, we can safely set the nextGoroutine number to the "routines" parameter of this func
 	atomic.StoreInt64(&pool.nextGoroutine, int64(config.Routines))
@@ -181,6 +183,11 @@ func (p *Pool) IsShuttingDown() bool {
 	return atomic.LoadInt32(&p.shuttingDown) == 1
 }
 
+// Done returns a channel that can be used to wait for the pool to be shut down.
+func (p *Pool) Done() <-chan struct{} {
+	return p.doneChannel
+}
+
 /*
 	PRIVATE FUNCS
 */
@@ -213,6 +220,7 @@ func (p *Pool) goroutineDown() {
 
 // taskUp is used internally to increase the atomic counter of running tasks by 1.
 func (p *Pool) taskUp() {
+	atomic.AddInt64(&p.jobsStarted, 1)
 	atomic.AddInt32(&p.currentLoad, 1)
 }
 
@@ -258,6 +266,12 @@ func (p *Pool) worker(goroutine int) {
 		case task, ok := <-p.jobChannel:
 			if ok && !p.IsShuttingDown() {
 				p.safeDo(goroutine, task)
+				st := atomic.LoadInt64(&p.jobsStarted)
+				rt := atomic.LoadInt32(&p.currentLoad)
+				fmt.Printf("st: %d, rt: %d\n", st, rt)
+				if st > 1 && rt == 0 {
+					close(p.doneChannel)
+				}
 			}
 		}
 	}
