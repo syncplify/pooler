@@ -39,7 +39,7 @@ func stats() {
 		} else {
 			fmt.Printf("#\n# Elapsed: %s - Active Workers/Tasks: %d/%d\n#\n", time.Now().Sub(startTime).String(), aw, at)
 			fmt.Println("#===> Attempting to resize pool to:", ngr)
-			err := tasks.Resize(int32(ngr))
+			err := tasks.Resize(int64(ngr))
 			if err != nil {
 				fmt.Println(err)
 			} else {

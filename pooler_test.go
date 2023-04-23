@@ -14,7 +14,7 @@ var pool *Pool
 var (
 	counter int64 // we'll use this to simulate some work
 	// How many goroutines/maxTasks
-	routines = int32(10)
+	routines = int64(10)
 	maxTasks = int64(1000)
 )
 
@@ -108,9 +108,9 @@ func TestPooler_Slow(t *testing.T) {
 		}
 	}
 	// Allow some time for all jobs to finish
-	time.Sleep(3 * time.Second)
+	time.Sleep(10 * time.Second)
 	// Shutdown the pool (on slow tasks we DO expect this to timeout)
-	timedout := pool.ShutdownWithTimeout(time.Second * 5)
+	timedout := pool.ShutdownWithTimeout(time.Second * 3)
 	if !timedout {
 		t.Fatal("3. Failed to trigger timeout reached during slow shutdown (it should have!)")
 	}
@@ -120,6 +120,7 @@ func TestPooler_SlowWithDone(t *testing.T) {
 	if pool == nil {
 		t.Fatal("1. Could not create pool: expected pointer, got nil")
 	}
+	pool.PrepareToWait() //! IMPORTANT: we need to call this before we start enqueuing jobs if we want to use .Wait() later
 	// Enqueue jobs
 	for i := 0; i < int(20); i++ {
 		job := &mySlowTask{TaskID: ksuid.New().String()}
@@ -128,7 +129,7 @@ func TestPooler_SlowWithDone(t *testing.T) {
 			t.Fatalf("2. Could not enqueue job: %s", err)
 		}
 	}
-	<-pool.Done()
+	pool.Wait()
 	pool.Shutdown()
 }
 

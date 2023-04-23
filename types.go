@@ -1,6 +1,9 @@
 package pooler
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // CallbackFuncWrk is the prototype of a function that will be called by the pool to notify when workers are created or shutdown.
 type CallbackFuncWrk func(routine int)
@@ -20,9 +23,9 @@ type CallbackFuncQueueErr func(task *Task, err error)
 // Config is the global pool configuration struct.
 type Config struct {
 	// Routines is the desired number of "worker" goroutines
-	Routines int32
+	Routines atomic.Int64
 	// MaxTasks is the maximum number of tasks that can be in this pool's queue at any given time
-	MaxTasks int64
+	MaxTasks atomic.Int64
 	// WorkerCreatedCB is an optional callback func that will be called every time a "worker" goroutine is created
 	WorkerCreatedCB CallbackFuncWrk
 	// WorkerShutdownCB is an optional callback func that will be called every time a "worker" goroutine is shutdown
@@ -58,14 +61,16 @@ type Pool struct {
 	cfg               *Config        // A user-provided configuration for this pool
 	shutdownChannel   chan struct{}  // Channel used to shutdown the pool
 	shutdownWG        sync.WaitGroup // WaitGroup used to wait for "worker" goroutines to shut down
-	shuttingDown      int32          // starts as 0, will be atomically set to 1 when the pool is shutting down (so that tasks can check it)
+	shuttingDown      atomic.Bool    // starts as 0, will be atomically set to 1 when the pool is shutting down (so that tasks can check it)
 	jobChannel        chan *Task     // Buffered channel used to dispatch tasks to the goroutines that run them
 	shrinkChannel     chan struct{}  // Buffered channel that will be used to shrink the pool during a call to the .Resize method
 	capacity          int64          // Maximum capacity of the pool
-	currentLoad       int32          // Current number of goroutines actually doing something
-	currentGoroutines int32          // Current number of running (including idle) goroutines
-	nextGoroutine     int64          // Incremental (atomic) number to be assigned to the next goroutine
+	currentLoad       atomic.Int64   // Current number of goroutines actually doing something
+	currentGoroutines atomic.Int64   // Current number of running (including idle) goroutines
+	nextGoroutine     atomic.Int64   // Incremental (atomic) number to be assigned to the next goroutine
 	//* new
-	jobsStarted int64
-	doneChannel chan struct{} // Channel used to signal that the pool is done
+	startedWaiting    atomic.Bool
+	jobsStarted       atomic.Int64
+	waitChannel       chan struct{} // Channel used to signal that the pool thet the waiting is over
+	waitChanProtector atomic.Bool
 }

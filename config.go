@@ -1,8 +1,11 @@
 package pooler
 
 // NewConfig creates and returns a basic/initial Config struct, with a specified numer of worker `routines` and a specified maximum number of queueable `maxTasks`.
-func NewConfig(routines int32, maxTasks int64) *Config {
-	return &Config{Routines: routines, MaxTasks: maxTasks}
+func NewConfig(routines int64, maxTasks int64) *Config {
+	cfg := &Config{}
+	cfg.Routines.Store(routines)
+	cfg.MaxTasks.Store(maxTasks)
+	return cfg
 }
 
 // OnWorkerCreated sets the callback function that's called when a new "worker" goroutine is created.
