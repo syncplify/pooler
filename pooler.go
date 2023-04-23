@@ -5,7 +5,6 @@ package pooler
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -282,12 +281,9 @@ func (p *Pool) worker(goroutine int) {
 			if ok && !p.IsShuttingDown() {
 				p.safeDo(goroutine, task)
 				if p.startedWaiting.Load() {
-					fmt.Println("we are waiting")
 					st := p.jobsStarted.Load()
 					rt := p.currentLoad.Load()
-					fmt.Println(st, rt)
 					if st > 1 && rt == 0 {
-						fmt.Println("we are done")
 						p.doCloseWaitChannel()
 					}
 				}
